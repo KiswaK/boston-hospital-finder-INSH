@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
 
   <!-- TODO: Ticket 1 — add Leaflet CSS link here -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,9 +33,10 @@
     #main { display: flex; height: calc(100vh - 110px); }
 
     /* TODO: Ticket 1 — add #map style here */
+    #map { flex: 1; }
 
     #sidebar {
-      width: 100%; /* TODO: Ticket 1 — change to 320px once map is added */
+      width: 320px; /* TODO: Ticket 1 — change to 320px once map is added */
       background: white;
       border-left: 1px solid #ddd;
       display: flex; flex-direction: column;
@@ -88,6 +90,7 @@
 <div id="main">
 
   <!-- TODO: Ticket 1 — add <div id="map"></div> here -->
+  <div id="map"></div>
 
   <div id="sidebar">
     <div id="sidebar-header">Enter a ZIP code to find nearby hospitals</div>
@@ -97,6 +100,7 @@
 </div>
 
 <!-- TODO: Ticket 1 — add Leaflet JS script tag here -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 
 <script>
 // ── Data URLs ──
@@ -105,13 +109,22 @@ const VULN_CSV     = "https://bostonopendata-boston.opendata.arcgis.com/api/down
 
 // ── State ──
 // TODO: Ticket 1 — add map and markersLayer variables here
+let map, markersLayer;
 let vulnByNeigh = {}; // stores vulnerability scores keyed by neighborhood name
 
 // ── TODO: Ticket 1 — add initMap() function here ──
-// Should:
-// 1. Create a Leaflet map centered on Boston [42.3601, -71.0589] zoom 12
-// 2. Add OpenStreetMap tile layer
-// 3. Create a markersLayer (L.layerGroup) and add to map
+function initMap() {
+  // 1. Create a Leaflet map centered on Boston [42.3601, -71.0589] zoom 12
+  map = L.map("map").setView([42.3601, -71.0589], 12);
+
+  // 2. Add OpenStreetMap tile layer
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+
+  // 3. Create a markersLayer (L.layerGroup) and add to map
+  markersLayer = L.layerGroup().addTo(map);
+}
 
 // ── Robust CSV parser (handles quoted fields with embedded commas and newlines) ──
 function parseCSV(text) {
@@ -156,8 +169,6 @@ function parseCSV(text) {
 }
 
 // ── Euclidean distance in miles ──
-// 1 degree latitude ≈ 69 miles, 1 degree longitude ≈ 52 miles in Boston
-// Simple and accurate enough for short local distances
 function distMiles(lat1, lon1, lat2, lon2) {
   const dLat = (lat2 - lat1) * 69;
   const dLon = (lon2 - lon1) * 52;
@@ -178,31 +189,19 @@ async function getZipCoords(zip) {
 }
 
 // ── TODO: Ticket 1 — add makeMarker(lat, lon) function here ──
-// Use L.circleMarker, radius 10, blue fill, white border
+function makeMarker(lat, lon) {
+  return L.circleMarker([lat, lon], {
+    radius: 10,
+    fillColor: "#003087",
+    color: "#ffffff",
+    weight: 2,
+    fillOpacity: 0.9
+  });
+}
 
 // ── TODO: Ticket 2 — add loadVulnerability() function here ──
-// Should:
-// 1. Fetch VULN_CSV and parse it
-// 2. Group rows by neighborhood Name (multiple census tracts per neighborhood)
-// 3. For each neighborhood sum up the population and your chosen factors across all tracts
-// 4. Calculate each chosen factor as a percentage of total population:
-//    e.g. olderPct = (totalOlderAdult / totalPOP) * 100
-// 5. Store your chosen percentages in vulnByNeigh keyed by uppercase neighborhood name
-//
-// Available columns to choose from (pick at least 2):
-//   OlderAdult  — residents over 65
-//   TotChild    — children under 5
-//   Low_to_No   — low or no income households
-//   TotDis      — people with disabilities
-//   LEP         — limited English proficiency
-//
-// Think about: which factors are most relevant to hospital access?
 
 // ── TODO: Ticket 2 — add makePopupHTML(hospital, vuln) function here ──
-// Should show:
-// - Hospital name and address
-// - A breakdown table: % elderly, % children under 5,
-//   % low income, % disabilities, % limited English
 
 // ── Render sidebar cards ──
 function renderSidebar(matches, markers) {
@@ -222,6 +221,8 @@ function renderSidebar(matches, markers) {
       document.querySelectorAll(".hospital-card").forEach(c => c.classList.remove("active"));
       card.classList.add("active");
       // TODO: Ticket 1 — pan map and open popup: markers[idx].openPopup(); map.panTo(...)
+      markers[idx].openPopup();
+      map.panTo([h.lat, h.lon]);
     };
     resultsDiv.appendChild(card);
   });
@@ -243,6 +244,7 @@ async function findHospitals() {
   loading.style.display = "block";
   resultsDiv.innerHTML  = "";
   // TODO: Ticket 1 — clear existing markers: markersLayer.clearLayers()
+  markersLayer.clearLayers();
 
   // Step 1: convert ZIP to coordinates
   const coords = await getZipCoords(zipInput);
@@ -253,12 +255,10 @@ async function findHospitals() {
   }
 
   // Step 2: fetch hospital CSV
-  // TODO: Ticket 2 — also load vulnerability data here using Promise.all
   const hospText  = await fetch(HOSPITAL_CSV).then(r => r.text());
   const hospitals = parseCSV(hospText);
 
   // Step 3: extract coordinates from Location field and filter by radius
-  // Location field format: "(42.336, -71.107)"
   const coordRx = /\(\s*([-\d.]+),\s*([-\d.]+)\s*\)/;
   const matches = hospitals.map(h => {
     const m = (h["LOCATION"] || "").match(coordRx);
@@ -282,7 +282,13 @@ async function findHospitals() {
   // TODO: Ticket 1 — loop matches, call makeMarker() and add each to markersLayer
   // TODO: Ticket 1 — fit map to markers: map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2))
   // TODO: Ticket 2 — bind popup to each marker: marker.bindPopup(makePopupHTML(h, vuln))
-  const markers = []; // TODO: Ticket 1 — fill this array with your markers
+  const markers = matches.map(h => {
+    const marker = makeMarker(h.lat, h.lon);
+    marker.addTo(markersLayer);
+    return marker;
+  });
+
+  map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
 
   // Step 5: render sidebar
   renderSidebar(matches, markers);
@@ -295,6 +301,7 @@ document.getElementById("zip").addEventListener("keydown", e => {
 
 // ── Boot ──
 // TODO: Ticket 1 — call initMap() here
+initMap();
 </script>
 </body>
 </html>
