@@ -47,7 +47,6 @@
       display: inline-block; background: #003087; color: white;
       border-radius: 10px; padding: 1px 8px; font-size: 11px; margin-left: 6px;
     }
-    /* Ticket 2 popup styles */
     .popup-wrap { font-family: Arial, sans-serif; font-size: 13px; min-width: 200px; }
     .popup-name { font-weight: bold; font-size: 15px; color: #003087; margin-bottom: 4px; }
     .popup-addr { color: #555; margin-bottom: 8px; }
@@ -60,12 +59,6 @@
     .vuln-bar-fill { background: #c0392b; border-radius: 4px; height: 8px; }
     .vuln-label { font-size: 11px; color: #888; margin-top: 2px; }
     .no-vuln { color: #aaa; font-style: italic; font-size: 12px; }
-    .vuln-row { margin-bottom: 7px; }
-    .vuln-row-header { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; }
-    .vuln-row-label { color: #444; }
-    .vuln-row-pct { font-weight: bold; color: #003087; }
-    .bar-track { background: #e8edf5; border-radius: 4px; height: 7px; }
-    .bar-fill { border-radius: 4px; height: 7px; transition: width 0.3s; }
   </style>
 </head>
 <body>
@@ -140,7 +133,7 @@ function parseCSV(text) {
     if (text[i] === '\n') i++;
     return fields;
   }
-  headers = parseLine().map(h => h.toUpperCase().replace(/^\uFEFF/, "")); // strip BOM
+  headers = parseLine().map(h => h.toUpperCase().replace(/^\uFEFF/, ""));
   while (i < text.length) {
     if (text[i] === '\r' || text[i] === '\n') { i++; continue; }
     const vals = parseLine();
@@ -180,9 +173,7 @@ function makeMarker(lat, lon) {
   });
 }
 
-// ── Ticket 2: load and index vulnerability CSV by neighborhood name ──
 async function loadVulnerability() {
-  // Only fetch once; re-use cached data on subsequent searches
   if (Object.keys(vulnByNeigh).length > 0) return;
   try {
     const text = await fetch(VULN_CSV).then(r => r.text());
@@ -190,16 +181,15 @@ async function loadVulnerability() {
     rows.forEach(row => {
       const name = (row["NAME"] || "").trim();
       if (!name) return;
-      const pop  = parseInt(row["POP100_RE"]) || 1;  // total population (avoid /0)
-      const hu   = parseInt(row["HU100_RE"])  || 1;  // total housing units
       vulnByNeigh[name.toLowerCase()] = {
         neighborhood: name,
-        pop,
-        pctElderly:  (parseInt(row["OLDERADULT"]) || 0) / pop,
-        pctChild:    (parseInt(row["TOTCHILD"])    || 0) / pop,
-        pctLowInc:   (parseInt(row["LOW_TO_NO"])   || 0) / hu,
-        pctDisabled: (parseInt(row["TOTDIS"])      || 0) / pop,
-        pctLEP:      (parseInt(row["LEP"])         || 0) / pop,
+        totDis:     parseInt(row["TOTDIS"])     || 0,
+        totChild:   parseInt(row["TOTCHILD"])   || 0,
+        olderAdult: parseInt(row["OLDERADULT"]) || 0,
+        lowToNo:    parseInt(row["LOW_TO_NO"])  || 0,
+        lep:        parseInt(row["LEP"])        || 0,
+        poc:        parseInt(row["POC2"])       || 0,
+        medIllnes:  parseFloat(row["MEDILLNES"])|| 0
       };
     });
   } catch(e) {
@@ -207,44 +197,46 @@ async function loadVulnerability() {
   }
 }
 
-// ── Ticket 2: build popup HTML for a hospital + its neighborhood's vuln data ──
 function makePopupHTML(h, vuln) {
   const addr = [h["AD"], h["CITY"], h["STATE"]].filter(Boolean).join(", ");
-
   let vulnHTML = "";
   if (vuln) {
-    // Bar colors per category
-    const cats = [
-      { label: "Elderly residents",        pct: vuln.pctElderly,  color: "#6c63a8" },
-      { label: "Children (under 18)",       pct: vuln.pctChild,    color: "#2196a8" },
-      { label: "Low-income households",     pct: vuln.pctLowInc,   color: "#c0392b" },
-      { label: "People with disabilities",  pct: vuln.pctDisabled, color: "#e67e22" },
-      { label: "Limited English speakers",  pct: vuln.pctLEP,      color: "#27a848" },
-    ];
-    const rows = cats.map(c => {
-      const w = Math.min(100, (c.pct * 100).toFixed(1));
-      return `
-        <div class="vuln-row">
-          <div class="vuln-row-header">
-            <span class="vuln-row-label">${c.label}</span>
-            <span class="vuln-row-pct">${(c.pct * 100).toFixed(1)}%</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width:${w}%;background:${c.color}"></div>
-          </div>
-        </div>`;
-    }).join("");
-
+    const pct = Math.min(100, Math.round((vuln.medIllnes / 3000) * 100));
     vulnHTML = `
-      <div class="popup-section">Neighborhood — ${vuln.neighborhood}</div>
-      <div style="font-size:11px;color:#888;margin-bottom:8px">
-        Population: ${vuln.pop.toLocaleString()}
+      <div class="popup-section">Neighborhood Vulnerability — ${vuln.neighborhood}</div>
+      <div class="popup-row">
+        <span class="popup-label">Disabled residents</span>
+        <span class="popup-val">${vuln.totDis.toLocaleString()}</span>
       </div>
-      ${rows}`;
+      <div class="popup-row">
+        <span class="popup-label">Children</span>
+        <span class="popup-val">${vuln.totChild.toLocaleString()}</span>
+      </div>
+      <div class="popup-row">
+        <span class="popup-label">Older adults</span>
+        <span class="popup-val">${vuln.olderAdult.toLocaleString()}</span>
+      </div>
+      <div class="popup-row">
+        <span class="popup-label">Low / no income</span>
+        <span class="popup-val">${vuln.lowToNo.toLocaleString()}</span>
+      </div>
+      <div class="popup-row">
+        <span class="popup-label">Limited English</span>
+        <span class="popup-val">${vuln.lep.toLocaleString()}</span>
+      </div>
+      <div class="popup-row">
+        <span class="popup-label">People of color</span>
+        <span class="popup-val">${vuln.poc.toLocaleString()}</span>
+      </div>
+      <div class="vuln-bar-wrap">
+        <div class="vuln-label">Medical illness index: ${vuln.medIllnes.toFixed(0)}</div>
+        <div class="vuln-bar-bg">
+          <div class="vuln-bar-fill" style="width:${pct}%"></div>
+        </div>
+      </div>`;
   } else {
     vulnHTML = `<div class="no-vuln" style="margin-top:8px">No vulnerability data for this neighborhood.</div>`;
   }
-
   return `
     <div class="popup-wrap">
       <div class="popup-name">🏥 ${h["NAME"] || "Hospital"}</div>
@@ -299,10 +291,9 @@ async function findHospitals() {
     return;
   }
 
-  // Fetch hospital CSV and vulnerability data in parallel
   const [hospText] = await Promise.all([
     fetch(HOSPITAL_CSV).then(r => r.text()),
-    loadVulnerability()   // populates vulnByNeigh; safe to call multiple times
+    loadVulnerability()
   ]);
 
   const hospitals = parseCSV(hospText);
@@ -325,12 +316,11 @@ async function findHospitals() {
 
   sidebarHdr.textContent = `${matches.length} hospital${matches.length > 1 ? "s" : ""} within ${radius} miles of ${coords.city}, ${coords.state}`;
 
-  // Ticket 2: build markers with popups
   const markers = matches.map(h => {
     const neigh = (h["NEIGH"] || "").trim().toLowerCase();
-    const vuln  = vulnByNeigh[neigh] || null;   // look up by neighborhood name
+    const vuln  = vulnByNeigh[neigh] || null;
     const marker = makeMarker(h.lat, h.lon);
-    marker.bindPopup(makePopupHTML(h, vuln));    // attach popup
+    marker.bindPopup(makePopupHTML(h, vuln));
     marker.addTo(markersLayer);
     return marker;
   });
